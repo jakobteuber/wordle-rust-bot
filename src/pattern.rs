@@ -3,10 +3,18 @@ use std::io;
 use std::ops::Index;
 use crate::word::WORD_LENGTH;
 
+/// Represents the color feedback in a Wordle game.
+///
+/// # Variants
+/// * `Green` - Indicates a correct letter in the correct position.
+/// * `Yellow` - Indicates a correct letter in the wrong position.
+/// * `Black` - Indicates a letter that is not present in the word.
 #[derive(PartialEq, Eq, Copy, Clone)]
 pub enum Color { Green, Yellow, Black, }
 
 impl Color {
+    const SIZE: u8 = 3;
+
     const fn value(&self) -> u8 {
         match self {
             Color::Green => {2}
@@ -16,9 +24,6 @@ impl Color {
     }
 }
 
-impl Color {
-    const SIZE: u8 = 3;
-}
 
 impl Display for Color {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

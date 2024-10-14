@@ -72,15 +72,39 @@ impl Display for Eval<'_> {
     }
 }
 
-/// Computes the entropy of a given word. It is the expected information
-/// content that guessing a given word will reveal.
+/// Calculates the entropy of a given word in relation to a set of possible solutions.
+///
+/// The entropy measures how much information a word can provide about the correct solution
+/// in a Wordle game. The goal is to find the word that maximizes the reduction of the solution
+/// space by providing the most informative feedback when guessed.
 ///
 /// # Arguments
 ///
-/// * `word`: The word for which the entropy is calculated.
-/// * `solution_space`: The space of potential solution that should be narrowed down.
+/// * `word` - A reference to the word for which entropy is being calculated.
+/// * `solution_space` - A reference to a vector containing all possible solution words.
+///   Each word is compared to the given `word` to determine how much information can be gained.
 ///
-/// returns: `Eval`
+/// # Returns
+///
+/// Returns an `Eval` struct containing:
+/// * `word` - The word that was evaluated.
+/// * `entropy` - A `f64` representing the entropy (information gain) of the word.
+///
+///
+/// # Example
+///
+/// ```rust
+/// let word = "crane";
+/// let solution_space = vec![&"apple", &"grape", &"flint"];
+/// let evaluation = entropy(word, &solution_space);
+/// assert!(evaluation.entropy - 1.58 < 0.05);
+/// ```
+///
+/// In this example, the function calculates how much information the word "crane" can provide
+/// about the correct solution given the remaining possible solutions in `solution_space`.
+/// # See Also
+///
+/// * [`score`] - Function that computes the result pattern between two words.
 fn entropy<'a>(word: &'a Word, solution_space: &Vec<&Word>) -> Eval<'a> {
     let mut pattern_count = [0_u32; Pattern::MAX];
     for solution in solution_space {
@@ -96,6 +120,33 @@ fn entropy<'a>(word: &'a Word, solution_space: &Vec<&Word>) -> Eval<'a> {
     Eval{word, entropy}
 }
 
+/// Prints the first few elements of a vector, along with the total number of entries.
+///
+/// This function displays the name of the vector, the total number of elements it contains,
+/// and the first few elements up to a specified limit. If the vector has more elements than
+/// the `max_length` parameter, an ellipsis (`...`) is printed to indicate truncation.
+///
+/// # Arguments
+///
+/// * `name` - Some info to print as header
+/// * `vector` - A reference to a vector containing the elements to print. The elements must implement
+///   the [`Display`] trait to be printed.
+/// * `max_length` - The maximum number of elements to print from the start of the vector.
+///
+/// # Example
+///
+/// ```rust
+/// let numbers = vec![1, 2, 3, 4, 5, 6];
+/// print_start("Numbers", &numbers, 3);
+/// ```
+///
+/// Output:
+/// ```text
+/// Numbers (6 entries): 1, 2, 3, ...
+/// ```
+///
+/// In this example, the function prints the first 3 elements of the `numbers` vector, followed by an ellipsis
+/// to indicate that the vector contains more elements.
 fn print_start<T>(name: &str, vector: &Vec<T>, max_length: usize) where T: Display {
     let length = usize::min(max_length, vector.len());
     print!("\x1b[1m{} ({} entries):\x1b[0m ", name, vector.len());
@@ -108,6 +159,34 @@ fn print_start<T>(name: &str, vector: &Vec<T>, max_length: usize) where T: Displ
     println!();
 }
 
+/// Represents the state of a Wordle game.
+///
+/// The `Game` struct keeps track of the words available for guesses, the remaining possible
+/// solutions, and the current number of rounds.
+///
+/// # Fields
+///
+/// * `words` - A reference to a vector of all possible words that can be used as guesses. This includes both
+///   valid solutions and other potential guesses that can help reduce the solution space.
+/// * `solution_space` - A vector containing references to the remaining possible solutions. This vector shrinks
+///   as the game progresses, based on the feedback from guesses.
+/// * `round` - The current round of the game. A round corresponds to a single guess and its feedback.
+///   Typically, Wordle games last up to six rounds, see [Game::MAX_ROUNDS].
+///
+/// # Lifetime Parameters
+///
+/// * `'a` - The lifetime of the word reference `words`. The references in `solution_space` refer
+///    into `words` and has the same lifetime.
+///
+/// # Example
+///
+/// ```rust
+/// let game = Game::new(&read_file(File::open("wordle.txt")));
+/// ```
+///
+/// # See Also
+/// * [crate::read_file] - to obtain word lists for a game.
+/// * [PlayGame], [SimulatedGame] - structs that use this one.
 struct Game<'a> {
     words: &'a Vec<Word>,
     solution_space: Vec<&'a Word>,
@@ -116,8 +195,36 @@ struct Game<'a> {
 
 impl Game<'_> {
 
+    /// The maximum number of rounds allowed in a Wordle game.
+    ///
+    /// In Wordle, players have up to six attempts to guess the correct word. This constant defines
+    /// the upper limit on the number of rounds that a game can have.
+    ///
+    /// # See Also
+    ///
+    /// * [`Game::round`] - The current round of the game, which is compared against `MAX_ROUNDS`.
     const MAX_ROUNDS: u8 = 6;
 
+    /// Creates a new `Game` instance with the given list of words.
+    ///
+    /// # Arguments
+    ///
+    /// * `words` - A reference to a vector of `Word`s listing all possible words that can be used in the game.
+    ///
+    /// # Returns
+    ///
+    /// Returns a new instance of `Game` with:
+    /// * `words` - Set to the input vector of words.
+    /// * `solution_space` - Initially set to include all words from the `words` vector. As the game
+    /// progresses, this solution space can be reduced based on feedback from guesses.
+    /// * `round` - Initialized to 0.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let word_list = read_file("wordle.txt");
+    /// let game = Game::new(&word_list);
+    /// ```
     fn new(words: &Vec<Word>) -> Game {
         Game {
             words,
@@ -134,6 +241,21 @@ impl Game<'_> {
         evaluation
     }
 
+    /// Filters the solution space based on the result of a guess.
+    ///
+    /// This function refines the game's solution space by eliminating words that do not match the
+    /// feedback pattern from a given guess. After a guess is made and a feedback pattern (green, yellow, gray)
+    /// is received, this function removes words from the solution space that would not produce the same
+    /// feedback pattern if they were the correct solution. The remaining words in the solution space are
+    /// the ones still consistent with the given feedback.
+    ///
+    /// # Arguments
+    /// * `guess` - A reference to the word that was guessed.
+    /// * `result` - The `Pattern` representing the feedback received from the guess (e.g., which letters are
+    ///   correct and in the right position, which are correct but in the wrong position, and which are incorrect).
+    ///
+    /// # See Also
+    /// * [`score`] - Function that compares two words and returns the feedback pattern.
     fn filter(&mut self, guess: &Word, result: Pattern) {
         self.solution_space = self.solution_space.par_iter().filter_map(|w| {
             if score(guess, w) == result {
